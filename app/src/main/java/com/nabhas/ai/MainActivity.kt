@@ -1,20 +1,19 @@
 package com.nabhas.ai
 
 import android.Manifest
-import.content.pm.PackageManager
-import.os.Bundle
+import android.content.pm.PackageManager
+import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
@@ -32,7 +31,6 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -136,7 +134,9 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel()) {
                         if (hasPermission) {
                             viewModel.startContinuousListening()
                         } else {
-                            microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            microphonePermissionLauncher.launch(
+                                Manifest.permission.RECORD_AUDIO
+                            )
                         }
                     }
                 },
@@ -166,7 +166,9 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel()) {
                     text = viewModel.voiceStatus.value,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f).padding(start = 12.dp)
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 12.dp)
                 )
             }
 
@@ -175,9 +177,7 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel()) {
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    vertical = 8.dp
-                ),
+                contentPadding = PaddingValues(vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 if (messages.isEmpty()) {
@@ -277,7 +277,9 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel()) {
         AlertDialog(
             onDismissRequest = { showClearConfirmation = false },
             title = { Text("Clear conversation?") },
-            text = { Text("This will remove all messages from the current conversation.") },
+            text = {
+                Text("This will remove all messages from the current conversation.")
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -371,7 +373,7 @@ private fun ChatBubble(
     val bubbleColor = if (isUser) {
         MaterialTheme.colorScheme.primaryContainer
     } else {
-        MaterialTheme.colorScheme.surfaceContainerHigh
+        MaterialTheme.colorScheme.surfaceVariant
     }
     val contentColor = if (isUser) {
         MaterialTheme.colorScheme.onPrimaryContainer
@@ -387,8 +389,7 @@ private fun ChatBubble(
             color = bubbleColor,
             contentColor = contentColor,
             shape = MaterialTheme.shapes.large,
-            modifier = Modifier
-                .fillMaxWidth(0.88f)
+            modifier = Modifier.fillMaxWidth(0.88f)
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
                 Text(
