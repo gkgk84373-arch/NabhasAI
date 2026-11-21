@@ -1,53 +1,67 @@
 package com.nabhas.ai
 
 import android.Manifest
-import android.content.pm.PackageManager
-import android.os.Bundle
+import.content.pm.PackageManager
+import.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nabhas.ai.api.ChatMessage
 import com.nabhas.ai.ui.theme.NabhasAITheme
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
-
-    private val requestPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-            // Handle microphone permission result if needed for voice input
-        }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        requestMicrophonePermission()
 
         setContent {
             NabhasAITheme {
@@ -60,123 +74,418 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-
-    private fun requestMicrophonePermission() {
-        when {
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.RECORD_AUDIO
-            ) == PackageManager.PERMISSION_GRANTED -> {
-                // Permission already granted
-            }
-            else -> {
-                requestPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-            }
-        }
-    }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(viewModel: ChatViewModel = viewModel()) {
     var inputText by remember { mutableStateOf("") }
-    val listState = rememberLazyListState()
+    var showSettings by remember { mutableStateOf(false) }
+    var showClearConfirmation by remember { mutableStateOf(false) }
 
-    Column(
+    val listState = rememberLazyListState()
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    val coroutineScope = rememberCoroutineScope()
+    val sheetState = rememberModalBottomSheetState()
+
+    val microphonePermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            viewModel.startContinuousListening()
+        } else {
+            viewModel.startContinuousListening()
+        }
+    }
+
+    val isLoading = viewModel.isLoading.value
+    val messages = viewModel.messages
+
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) {
+            listState.animateScrollToItem(messages.lastIndex)
+        }
+    }
+
+    Scaffold(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
-    ) {
-        Text(
-            text = "Nabhas AI",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 16.dp)
-        )
-
-        LazyColumn(
-            state = listState,
+            .imePadding(),
+        containerColor = MaterialTheme.colorScheme.background
+    ) { contentPadding ->
+        Column(
             modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .fillMaxSize()
+                .padding(contentPadding)
+                .windowInsetsPadding(WindowInsets.navigationBars)
+                .padding(horizontal = 16.dp)
         ) {
-            items(viewModel.messages) { message ->
-                ChatBubble(message = message)
-            }
-        }
+            Header(
+                onSettingsClick = { showSettings = true },
+                onClearClick = { showClearConfirmation = true },
+                onVoiceClick = {
+                    if (viewModel.isListening.value) {
+                        viewModel.stopContinuousListening()
+                    } else {
+                        val hasPermission = ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.RECORD_AUDIO
+                        ) == PackageManager.PERMISSION_GRANTED
 
-        viewModel.errorMessage.value?.let { error ->
-            Text(
-                text = error,
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(vertical = 4.dp)
-            )
-        }
-
-        if (viewModel.isLoading.value) {
-            CircularProgressIndicator(
-                modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .padding(8.dp)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            OutlinedTextField(
-                value = inputText,
-                onValueChange = { inputText = it },
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("Type a message...") },
-                maxLines = 4
-            )
-
-            Button(
-                onClick = {
-                    viewModel.sendMessage(inputText)
-                    inputText = ""
+                        if (hasPermission) {
+                            viewModel.startContinuousListening()
+                        } else {
+                            microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    }
                 },
-                enabled = !viewModel.isLoading.value && inputText.isNotBlank(),
-                modifier = Modifier.padding(start = 8.dp)
+                isListening = viewModel.isListening.value
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("Send")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = viewModel.agentMode.value,
+                        onCheckedChange = viewModel::setAgentMode
+                    )
+                    Text(
+                        text = "Agent mode",
+                        modifier = Modifier.padding(start = 8.dp),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+
+                Text(
+                    text = viewModel.voiceStatus.value,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f).padding(start = 12.dp)
+                )
             }
+
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    vertical = 8.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (messages.isEmpty()) {
+                    item {
+                        EmptyChatMessage()
+                    }
+                }
+
+                itemsIndexed(messages) { _, message ->
+                    ChatBubble(
+                        message = message,
+                        onCopy = {
+                            clipboardManager.setText(AnnotatedString(message.content))
+                        }
+                    )
+                }
+            }
+
+            viewModel.errorMessage.value?.let { error ->
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp)
+                ) {
+                    Text(
+                        text = error,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+            }
+
+            if (isLoading) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                    Text(
+                        text = "Thinking…",
+                        modifier = Modifier.padding(start = 10.dp),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                verticalAlignment = Alignment.Bottom
+            ) {
+                OutlinedTextField(
+                    value = inputText,
+                    onValueChange = { inputText = it },
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text("Message Nabhas AI…") },
+                    maxLines = 5
+                )
+
+                Button(
+                    onClick = {
+                        viewModel.sendMessage(inputText)
+                        inputText = ""
+                    },
+                    enabled = !isLoading && inputText.isNotBlank(),
+                    modifier = Modifier.padding(start = 8.dp, bottom = 2.dp)
+                ) {
+                    Text("Send")
+                }
+            }
+        }
+    }
+
+    if (showSettings) {
+        ModalBottomSheet(
+            onDismissRequest = { showSettings = false },
+            sheetState = sheetState
+        ) {
+            SettingsSheet(
+                viewModel = viewModel,
+                onSaved = {
+                    showSettings = false
+                    coroutineScope.launch { sheetState.hide() }
+                }
+            )
+        }
+    }
+
+    if (showClearConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirmation = false },
+            title = { Text("Clear conversation?") },
+            text = { Text("This will remove all messages from the current conversation.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.clearChat()
+                        showClearConfirmation = false
+                    }
+                ) {
+                    Text("Clear chat")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearConfirmation = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun Header(
+    onSettingsClick: () -> Unit,
+    onClearClick: () -> Unit,
+    onVoiceClick: () -> Unit,
+    isListening: Boolean
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Nabhas AI",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Text(
+                text = "Your AI assistant",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        OutlinedButton(onClick = onVoiceClick) {
+            Text(if (isListening) "Stop voice" else "Voice")
+        }
+
+        TextButton(onClick = onClearClick) {
+            Text("Clear")
+        }
+
+        TextButton(onClick = onSettingsClick) {
+            Text("Settings")
         }
     }
 }
 
 @Composable
-fun ChatBubble(message: ChatMessage) {
+private fun EmptyChatMessage() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 48.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "Hey, what can I help with?",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Text(
+            text = "Send a message or use voice input to get started.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 8.dp)
+        )
+    }
+}
+
+@Composable
+private fun ChatBubble(
+    message: ChatMessage,
+    onCopy: () -> Unit
+) {
     val isUser = message.role == "user"
-    val alignment = if (isUser) Alignment.End else Alignment.Start
+    val horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
     val bubbleColor = if (isUser) {
         MaterialTheme.colorScheme.primaryContainer
     } else {
-        MaterialTheme.colorScheme.secondaryContainer
+        MaterialTheme.colorScheme.surfaceContainerHigh
+    }
+    val contentColor = if (isUser) {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    } else {
+        MaterialTheme.colorScheme.onSurface
     }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = alignment
+        horizontalAlignment = horizontalAlignment
     ) {
         Surface(
-            shape = MaterialTheme.shapes.medium,
             color = bubbleColor,
-            modifier = Modifier.padding(
-                start = if (isUser) 48.dp else 0.dp,
-                end = if (!isUser) 48.dp else 0.dp
-            )
+            contentColor = contentColor,
+            shape = MaterialTheme.shapes.large,
+            modifier = Modifier
+                .fillMaxWidth(0.88f)
         ) {
-            Text(
-                text = message.content,
-                modifier = Modifier.padding(12.dp),
-                style = MaterialTheme.typography.bodyLarge
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(
+                    text = if (isUser) "You" else "Nabhas AI",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = message.content,
+                    modifier = Modifier.padding(top = 4.dp),
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                TextButton(
+                    onClick = onCopy,
+                    modifier = Modifier.align(Alignment.End)
+                ) {
+                    Text("Copy")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsSheet(
+    viewModel: ChatViewModel,
+    onSaved: () -> Unit
+) {
+    val currentSettings = viewModel.apiSettings.value
+    var apiKey by remember(currentSettings.apiKey) {
+        mutableStateOf(currentSettings.apiKey)
+    }
+    var model by remember(currentSettings.model) {
+        mutableStateOf(currentSettings.model)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp)
+            .padding(bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text(
+            text = "API settings",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold
+        )
+
+        OutlinedTextField(
+            value = apiKey,
+            onValueChange = { apiKey = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("API key") },
+            placeholder = { Text("Enter your API key") },
+            visualTransformation = PasswordVisualTransformation(),
+            singleLine = true
+        )
+
+        OutlinedTextField(
+            value = model,
+            onValueChange = { model = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Model") },
+            placeholder = { Text("default") },
+            singleLine = true
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Speak responses", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "Read assistant replies aloud",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = viewModel.speakResponses.value,
+                onCheckedChange = viewModel::setSpeakResponses
             )
+        }
+
+        Button(
+            onClick = {
+                viewModel.saveApiSettings(
+                    ApiSettings(apiKey = apiKey, model = model)
+                )
+                onSaved()
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Save settings")
         }
     }
 }
