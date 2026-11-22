@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Nabhas AI</string>
+    <string name="accessibility_service_label">Nabhas AI Accessibility</string>
+    <string name="accessibility_service_description">Allows Nabhas AI to inspect on-screen content and perform actions you request through the assistant.</string>
 </resources>

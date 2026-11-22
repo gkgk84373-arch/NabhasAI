@@ -19,50 +19,6 @@ interface OpenAiApiService {
         @Body request: ChatRequest
     ): ChatResponse
 
-    suspend fun chatCompletionsWithFallback(
-        authorization: String,
-        request: ChatRequest,
-        primaryModel: String = request.model,
-        useFallbackChain: Boolean = true
-    ): ModelCompletionResult {
-        val normalizedPrimaryModel = primaryModel.trim().ifBlank { "gpt-6-luna" }
-        val modelsToTry = if (useFallbackChain) {
-            (listOf(normalizedPrimaryModel) + ModelFallbackChain.models).distinct()
-        } else {
-            listOf(normalizedPrimaryModel)
-        }
-        var lastFailure: Exception? = null
-
-        for (modelName in modelsToTry) {
-            try {
-                val response = chatCompletions(
-                    authorization = authorization,
-                    request = request.copy(model = modelName)
-                )
-
-                val message = response.choices
-                    ?.firstNotNullOfOrNull { choice ->
-                        choice.message?.takeIf { it.content.isNotBlank() }
-                    }
-
-                if (message != null) {
-                    return ModelCompletionResult(
-                        modelName = modelName,
-                        message = message
-                    )
-                }
-
-                lastFailure = IOException("Model $modelName returned an empty response.")
-            } catch (exception: CancellationException) {
-                throw exception
-            } catch (exception: Exception) {
-                lastFailure = exception
-            }
-        }
-
-        throw lastFailure ?: IOException("All configured models returned empty responses.")
-    }
-
     companion object {
         private const val BASE_URL = "https://coarena.ai/api/v1"
 
@@ -99,4 +55,49 @@ interface OpenAiApiService {
                 .create(OpenAiApiService::class.java)
         }
     }
+}
+
+/** Tries the configured primary model and, when enabled, the remaining fallback models. */
+suspend fun OpenAiApiService.chatCompletionsWithFallback(
+    authorization: String,
+    request: ChatRequest,
+    primaryModel: String = request.model,
+    useFallbackChain: Boolean = true
+): ModelCompletionResult {
+    val normalizedPrimaryModel = primaryModel.trim().ifBlank { "gpt-6-luna" }
+    val modelsToTry = if (useFallbackChain) {
+        (listOf(normalizedPrimaryModel) + ModelFallbackChain.models).distinct()
+    } else {
+        listOf(normalizedPrimaryModel)
+    }
+    var lastFailure: Exception? = null
+
+    for (modelName in modelsToTry) {
+        try {
+            val response = chatCompletions(
+                authorization = authorization,
+                request = request.copy(model = modelName)
+            )
+
+            val message = response.choices
+                ?.firstNotNullOfOrNull { choice ->
+                    choice.message?.takeIf { it.content.isNotBlank() }
+                }
+
+            if (message != null) {
+                return ModelCompletionResult(
+                    modelName = modelName,
+                    message = message
+                )
+            }
+
+            lastFailure = IOException("Model $modelName returned an empty response.")
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (exception: Exception) {
+            lastFailure = exception
+        }
+    }
+
+    throw lastFailure ?: IOException("All configured models returned empty responses.")
 }

@@ -1,8 +1,10 @@
 package com.nabhas.ai
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -102,9 +104,9 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel()) {
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
-            viewModel.startContinuousListening()
+            viewModel.startVoiceInput()
         } else {
-            viewModel.startContinuousListening()
+            viewModel.voiceStatus.value = "Microphone permission was not granted."
         }
     }
 
@@ -135,7 +137,7 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel()) {
                 onClearClick = { showClearConfirmation = true },
                 onVoiceClick = {
                     if (viewModel.isListening.value) {
-                        viewModel.stopContinuousListening()
+                        viewModel.stopVoiceInput()
                     } else {
                         val hasPermission = ContextCompat.checkSelfPermission(
                             context,
@@ -143,7 +145,7 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel()) {
                         ) == PackageManager.PERMISSION_GRANTED
 
                         if (hasPermission) {
-                            viewModel.startContinuousListening()
+                            viewModel.startVoiceInput()
                         } else {
                             microphonePermissionLauncher.launch(
                                 Manifest.permission.RECORD_AUDIO
@@ -565,6 +567,7 @@ private fun SettingsSheet(
     onDownloadAndInstall: () -> Unit,
     onSaved: () -> Unit
 ) {
+    val context = LocalContext.current
     val currentSettings = viewModel.apiSettings.value
     var baseUrl by remember(currentSettings.baseUrl) {
         mutableStateOf(currentSettings.baseUrl)
@@ -592,6 +595,15 @@ private fun SettingsSheet(
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold
         )
+
+        OutlinedButton(
+            onClick = {
+                context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Open Accessibility Settings")
+        }
 
         OutlinedTextField(
             value = baseUrl,
