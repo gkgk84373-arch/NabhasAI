@@ -22,6 +22,8 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -80,12 +82,19 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel()) {
     var inputText by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
     var showClearConfirmation by remember { mutableStateOf(false) }
+    var updateStatus by remember { mutableStateOf<String?>(null) }
+    var availableUpdate by remember {
+        mutableStateOf<AppUpdater.AvailableUpdate?>(null)
+    }
+    var isCheckingForUpdate by remember { mutableStateOf(false) }
+    var isDownloadingUpdate by remember { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val coroutineScope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState()
+    val appUpdater = remember(context) { AppUpdater(context) }
 
     val microphonePermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -265,6 +274,65 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel()) {
         ) {
             SettingsSheet(
                 viewModel = viewModel,
+                updateStatus = updateStatus,
+                hasAvailableUpdate = availableUpdate != null,
+                isCheckingForUpdate = isCheckingForUpdate,
+                isDownloadingUpdate = isDownloadingUpdate,
+                onCheckForUpdate = {
+                    if (!isCheckingForUpdate && !isDownloadingUpdate) {
+                        isCheckingForUpdate = true
+                        updateStatus = "Checking GitHub for updates…"
+
+                        appUpdater.checkForUpdate { result ->
+                            isCheckingForUpdate = false
+                            when (result) {
+                                is AppUpdater.UpdateCheckResult.NoUpdate -> {
+                                    availableUpdate = null
+                                    updateStatus = "You're up to date."
+                                }
+
+                                is AppUpdater.UpdateCheckResult.UpdateAvailable -> {
+                                    availableUpdate = result.update
+                                    updateStatus = "A new update is available."
+                                }
+
+                                is AppUpdater.UpdateCheckResult.Failure -> {
+                                    availableUpdate = null
+                                    updateStatus = "Update check failed: ${
+                                        result.cause.message ?: "Unknown error"
+                                    }"
+                                }
+                            }
+                        }
+                    }
+                },
+                onDownloadAndInstall = {
+                    val update = availableUpdate
+                    if (update != null && !isDownloadingUpdate) {
+                        isDownloadingUpdate = true
+                        updateStatus = "Downloading the update…"
+
+                        appUpdater.downloadAndInstall(update) { result ->
+                            isDownloadingUpdate = false
+                            when (result) {
+                                is AppUpdater.InstallResult.InstallerOpened -> {
+                                    updateStatus = "Installer opened. Follow the prompts to install the update."
+                                }
+
+                                is AppUpdater.InstallResult.InstallPermissionRequired -> {
+                                    updateStatus =
+                                        "Allow Nabhas AI to install unknown apps in Settings, then tap Download & Install again."
+                                }
+
+                                is AppUpdater.InstallResult.Failure -> {
+                                    updateStatus = "Update installation failed: ${
+                                        result.cause.message ?: "Unknown error"
+                                    }"
+                                }
+                            }
+                        }
+                    }
+                },
                 onSaved = {
                     showSettings = false
                     coroutineScope.launch { sheetState.hide() }
@@ -416,6 +484,12 @@ private fun ChatBubble(
 @Composable
 private fun SettingsSheet(
     viewModel: ChatViewModel,
+    updateStatus: String?,
+    hasAvailableUpdate: Boolean,
+    isCheckingForUpdate: Boolean,
+    isDownloadingUpdate: Boolean,
+    onCheckForUpdate: () -> Unit,
+    onDownloadAndInstall: () -> Unit,
     onSaved: () -> Unit
 ) {
     val currentSettings = viewModel.apiSettings.value
@@ -435,6 +509,7 @@ private fun SettingsSheet(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp)
             .padding(bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -526,6 +601,61 @@ private fun SettingsSheet(
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Save settings")
+        }
+
+        Text(
+            text = "App Update",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(top = 8.dp)
+        )
+
+        Text(
+            text = "Check GitHub for the latest Nabhas AI APK.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Button(
+            onClick = onCheckForUpdate,
+            enabled = !isCheckingForUpdate && !isDownloadingUpdate,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            if (isCheckingForUpdate) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp
+                )
+                Text("Checking…", modifier = Modifier.padding(start = 8.dp))
+            } else {
+                Text("Check for Update")
+            }
+        }
+
+        if (hasAvailableUpdate) {
+            Button(
+                onClick = onDownloadAndInstall,
+                enabled = !isCheckingForUpdate && !isDownloadingUpdate,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (isDownloadingUpdate) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Text("Downloading…", modifier = Modifier.padding(start = 8.dp))
+                } else {
+                    Text("Download & Install")
+                }
+            }
+        }
+
+        updateStatus?.let { status ->
+            Text(
+                text = status,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

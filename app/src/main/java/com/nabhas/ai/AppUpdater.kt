@@ -28,10 +28,7 @@ class AppUpdater(context: Context) {
     private val mainHandler = Handler(Looper.getMainLooper())
 
     /**
-     * Checks the latest GitHub release. If its APK asset has a newer updated_at timestamp,
-     * downloads the asset and opens Android's package installer.
-     *
-     * Invoke this method from an app screen or other appropriate user-facing entry point.
+     * Checks the latest GitHub release without downloading the APK.
      */
     fun checkForUpdate(callback: (UpdateCheckResult) -> Unit) {
         executor.execute {
@@ -52,10 +49,34 @@ class AppUpdater(context: Context) {
                             lastInstalledUpdatedAt
                         )
                     )
-                    return@execute
+                } else {
+                    postResult(
+                        callback,
+                        UpdateCheckResult.UpdateAvailable(
+                            AvailableUpdate(
+                                updatedAt = releaseAsset.updatedAt,
+                                downloadUrl = releaseAsset.downloadUrl
+                            )
+                        )
+                    )
                 }
+            } catch (exception: Exception) {
+                postResult(callback, UpdateCheckResult.Failure(exception))
+            }
+        }
+    }
 
-                val apkFile = downloadApk(releaseAsset.downloadUrl)
+    /**
+     * Downloads the previously discovered APK and opens Android's package installer.
+     */
+    fun downloadAndInstall(
+        update: AvailableUpdate,
+        callback: (InstallResult) -> Unit
+    ) {
+        executor.execute {
+            try {
+                val apkFile = downloadApk(update.downloadUrl)
+
                 mainHandler.post {
                     try {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
@@ -67,36 +88,33 @@ class AppUpdater(context: Context) {
                             ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
                             appContext.startActivity(settingsIntent)
-                            callback(
-                                UpdateCheckResult.InstallPermissionRequired(apkFile)
-                            )
+                            callback(InstallResult.InstallPermissionRequired(apkFile))
                             return@post
                         }
 
                         openInstaller(apkFile)
 
                         // Android does not report installation completion for this ACTION_VIEW
-                        // flow. Save the release timestamp once the installer has been opened
-                        // to avoid repeatedly downloading and presenting the same APK.
+                        // flow. Save the release timestamp once the installer has been opened.
                         preferences.edit()
                             .putString(
                                 KEY_LAST_INSTALLED_UPDATED_AT,
-                                releaseAsset.updatedAt
+                                update.updatedAt
                             )
                             .apply()
 
                         callback(
-                            UpdateCheckResult.InstallerOpened(
-                                releaseAsset.updatedAt,
+                            InstallResult.InstallerOpened(
+                                update.updatedAt,
                                 apkFile
                             )
                         )
                     } catch (exception: Exception) {
-                        callback(UpdateCheckResult.Failure(exception))
+                        callback(InstallResult.Failure(exception))
                     }
                 }
             } catch (exception: Exception) {
-                postResult(callback, UpdateCheckResult.Failure(exception))
+                postResult(callback, InstallResult.Failure(exception))
             }
         }
     }
@@ -234,6 +252,18 @@ class AppUpdater(context: Context) {
         mainHandler.post { callback(result) }
     }
 
+    private fun postResult(
+        callback: (InstallResult) -> Unit,
+        result: InstallResult
+    ) {
+        mainHandler.post { callback(result) }
+    }
+
+    data class AvailableUpdate internal constructor(
+        val updatedAt: String,
+        internal val downloadUrl: String
+    )
+
     private data class ReleaseAsset(
         val updatedAt: String,
         val downloadUrl: String
@@ -245,18 +275,28 @@ class AppUpdater(context: Context) {
             val lastInstalledUpdatedAt: String
         ) : UpdateCheckResult()
 
-        data class InstallerOpened(
-            val updatedAt: String,
-            val apkFile: File
-        ) : UpdateCheckResult()
-
-        data class InstallPermissionRequired(
-            val apkFile: File
+        data class UpdateAvailable(
+            val update: AvailableUpdate
         ) : UpdateCheckResult()
 
         data class Failure(
             val cause: Exception
         ) : UpdateCheckResult()
+    }
+
+    sealed class InstallResult {
+        data class InstallerOpened(
+            val updatedAt: String,
+            val apkFile: File
+        ) : InstallResult()
+
+        data class InstallPermissionRequired(
+            val apkFile: File
+        ) : InstallResult()
+
+        data class Failure(
+            val cause: Exception
+        ) : InstallResult()
     }
 
     private companion object {
