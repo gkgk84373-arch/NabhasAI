@@ -49,6 +49,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     val voiceStatus = mutableStateOf("Voice input is idle.")
     val speakResponses = mutableStateOf(false)
 
+    val skillOptions: List<String> = listOf(AUTO_SKILL) +
+        AgentSkillRegistry.all().map { it.displayName }
+    val selectedSkill = mutableStateOf(AUTO_SKILL)
+
     private var chatJob: Job? = null
     private var speechRecognizer: SpeechRecognizer? = null
     private var textToSpeech: TextToSpeech? = null
@@ -90,6 +94,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         agentMode.value = enabled
     }
 
+    fun setSelectedSkill(skillName: String) {
+        if (skillOptions.any { it.equals(skillName.trim(), ignoreCase = true) }) {
+            selectedSkill.value = skillOptions.first {
+                it.equals(skillName.trim(), ignoreCase = true)
+            }
+        }
+    }
+
     fun setSpeakResponses(enabled: Boolean) {
         speakResponses.value = enabled
         if (!enabled) {
@@ -107,19 +119,21 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
+        val activeSkill = resolveActiveSkill(content)
+
         messages.add(ChatMessage(role = "user", content = content))
         isLoading.value = true
         errorMessage.value = null
 
         val requestMessages = buildList {
-            if (agentMode.value) {
-                add(
-                    ChatMessage(
-                        role = "system",
-                        content = AGENT_MODE_INSTRUCTION
-                    )
-                )
+            val systemInstructions = buildString {
+                append(activeSkill.instructions)
+                if (agentMode.value) {
+                    append("\n\n")
+                    append(AGENT_MODE_INSTRUCTION)
+                }
             }
+            add(ChatMessage(role = "system", content = systemInstructions))
             addAll(messages)
         }
 
@@ -142,6 +156,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         content = "[Model: ${result.modelName}]\n${assistantMessage.content}"
                     )
                 )
+
+                try {
+                    AgentActionEngine.execute(
+                        assistantMessage.content,
+                        getApplication<Application>()
+                    )
+                } catch (_: Exception) {
+                    // Keep action execution errors from interrupting the chat response.
+                }
+
                 speak(assistantMessage.content)
             } catch (e: CancellationException) {
                 throw e
@@ -202,6 +226,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         messages.clear()
         errorMessage.value = null
         isLoading.value = false
+    }
+
+    private fun resolveActiveSkill(prompt: String): AgentSkillDefinition {
+        val selection = selectedSkill.value.trim()
+        if (selection.equals(AUTO_SKILL, ignoreCase = true)) {
+            return AgentSkillRegistry.route(prompt)
+        }
+
+        return AgentSkillRegistry.all().firstOrNull { definition ->
+            definition.displayName.equals(selection, ignoreCase = true) ||
+                definition.skill.name.equals(selection, ignoreCase = true)
+        } ?: AgentSkillRegistry.route(prompt)
     }
 
     private fun loadApiSettings(): ApiSettings {
@@ -365,6 +401,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         private const val DEFAULT_BASE_URL = "https://coarena.ai/api/v1"
         private const val DEFAULT_PRIMARY_MODEL = "gpt-6-luna"
         private const val LISTENING_RESTART_DELAY_MS = 500L
+        private const val AUTO_SKILL = "Auto"
 
         private const val AGENT_MODE_INSTRUCTION =
             "Act as a careful, goal-oriented assistant. Break complex tasks into " +
