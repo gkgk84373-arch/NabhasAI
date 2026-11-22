@@ -5,8 +5,6 @@ import android.app.Application
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -19,6 +17,7 @@ import androidx.lifecycle.viewModelScope
 import com.nabhas.ai.api.ChatMessage
 import com.nabhas.ai.api.ChatRequest
 import com.nabhas.ai.api.OpenAiApiService
+import com.nabhas.ai.api.chatCompletionsWithFallback
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -37,7 +36,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         PREFERENCES_NAME,
         Application.MODE_PRIVATE
     )
-    private val mainHandler = Handler(Looper.getMainLooper())
 
     val messages = mutableStateListOf<ChatMessage>()
     val isLoading = mutableStateOf(false)
@@ -57,12 +55,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private var speechRecognizer: SpeechRecognizer? = null
     private var textToSpeech: TextToSpeech? = null
     private var isTextToSpeechReady = false
-
-    private val restartListening = Runnable {
-        if (isListening.value) {
-            startRecognitionSession()
-        }
-    }
 
     init {
         textToSpeech = TextToSpeech(application) { status ->
@@ -179,7 +171,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun startContinuousListening() {
+    fun startVoiceInput() {
         if (isListening.value) return
 
         val application = getApplication<Application>()
@@ -198,6 +190,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         try {
+            speechRecognizer?.destroy()
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(application).apply {
                 setRecognitionListener(createRecognitionListener())
             }
@@ -213,10 +206,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun stopContinuousListening() {
+    fun stopVoiceInput() {
         isListening.value = false
-        mainHandler.removeCallbacks(restartListening)
         speechRecognizer?.cancel()
+        speechRecognizer?.destroy()
+        speechRecognizer = null
         voiceStatus.value = "Voice input is idle."
     }
 
@@ -285,15 +279,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             override fun onError(error: Int) {
                 if (!isListening.value) return
 
-                if (isRecoverableSpeechError(error)) {
-                    voiceStatus.value = "Listening..."
-                    mainHandler.removeCallbacks(restartListening)
-                    mainHandler.postDelayed(restartListening, LISTENING_RESTART_DELAY_MS)
-                } else {
-                    isListening.value = false
-                    voiceStatus.value = speechErrorMessage(error)
-                    speechRecognizer?.cancel()
-                }
+                isListening.value = false
+                voiceStatus.value = speechErrorMessage(error)
+                speechRecognizer?.cancel()
             }
 
             override fun onResults(results: Bundle?) {
@@ -306,11 +294,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
                 if (!recognizedText.isNullOrBlank()) {
                     sendMessage(recognizedText)
+                    voiceStatus.value = "Voice input finished."
+                } else {
+                    voiceStatus.value = "No speech was recognized. Tap Voice to try again."
                 }
-
-                voiceStatus.value = "Listening..."
-                mainHandler.removeCallbacks(restartListening)
-                mainHandler.postDelayed(restartListening, LISTENING_RESTART_DELAY_MS)
+                isListening.value = false
             }
 
             override fun onPartialResults(partialResults: Bundle?) = Unit
@@ -346,14 +334,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun isRecoverableSpeechError(error: Int): Boolean {
-        return error == SpeechRecognizer.ERROR_NO_MATCH ||
-            error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT ||
-            error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY
-    }
-
     private fun speechErrorMessage(error: Int): String {
         return when (error) {
+            SpeechRecognizer.ERROR_NO_MATCH,
+            SpeechRecognizer.ERROR_SPEECH_TIMEOUT ->
+                "No speech was recognized. Tap Voice to try again."
+            SpeechRecognizer.ERROR_RECOGNIZER_BUSY ->
+                "Speech recognition is busy. Tap Voice to try again."
             SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
                 "Microphone permission is required for voice input."
             SpeechRecognizer.ERROR_NETWORK,
@@ -382,7 +369,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
-        stopContinuousListening()
+        stopVoiceInput()
         speechRecognizer?.destroy()
         speechRecognizer = null
         textToSpeech?.stop()
@@ -400,7 +387,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         private const val KEY_USE_FALLBACK_CHAIN = "use_fallback_chain"
         private const val DEFAULT_BASE_URL = "https://coarena.ai/api/v1"
         private const val DEFAULT_PRIMARY_MODEL = "gpt-6-luna"
-        private const val LISTENING_RESTART_DELAY_MS = 500L
         private const val AUTO_SKILL = "Auto"
 
         private const val AGENT_MODE_INSTRUCTION =
