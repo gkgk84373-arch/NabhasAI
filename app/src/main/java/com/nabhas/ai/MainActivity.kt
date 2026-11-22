@@ -27,6 +27,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -152,34 +154,7 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel()) {
                 isListening = viewModel.isListening.value
             )
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(
-                        checked = viewModel.agentMode.value,
-                        onCheckedChange = viewModel::setAgentMode
-                    )
-                    Text(
-                        text = "Agent mode",
-                        modifier = Modifier.padding(start = 8.dp),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
-
-                Text(
-                    text = viewModel.voiceStatus.value,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(start = 12.dp)
-                )
-            }
+            AgentsAndSkillsSection(viewModel = viewModel)
 
             LazyColumn(
                 state = listState,
@@ -364,6 +339,104 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel()) {
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun AgentsAndSkillsSection(viewModel: ChatViewModel) {
+    var skillMenuExpanded by remember { mutableStateOf(false) }
+    val selectedSkill = viewModel.selectedSkill.value
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 8.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Agents & Skills",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Agent mode",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "Use goal-oriented responses",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Switch(
+                    checked = viewModel.agentMode.value,
+                    onCheckedChange = viewModel::setAgentMode
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Skill",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "Active skill: $selectedSkill",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Column(horizontalAlignment = Alignment.End) {
+                    OutlinedButton(onClick = { skillMenuExpanded = true }) {
+                        Text(selectedSkill)
+                    }
+
+                    DropdownMenu(
+                        expanded = skillMenuExpanded,
+                        onDismissRequest = { skillMenuExpanded = false }
+                    ) {
+                        viewModel.skillOptions.forEach { skill ->
+                            DropdownMenuItem(
+                                text = { Text(skill) },
+                                onClick = {
+                                    viewModel.setSelectedSkill(skill)
+                                    skillMenuExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (selectedSkill.equals("Auto", ignoreCase = true)) {
+                Text(
+                    text = "Auto chooses a skill for each message.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
     }
 }
 
