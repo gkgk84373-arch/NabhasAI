@@ -1,10 +1,10 @@
 package com.nabhas.ai
 
+import android.app.SearchManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.provider.SearchManager
 import android.provider.Settings
 import org.json.JSONArray
 import org.json.JSONException
@@ -235,9 +235,15 @@ object AgentActionEngine {
             return
         }
         val nestedAction = value.opt("action")
-        if (nestedAction is JSONObject || nestedAction is JSONArray) {
-            collectActions(nestedAction, output)
-            return
+        when (nestedAction) {
+            is JSONObject -> {
+                collectActions(nestedAction, output)
+                return
+            }
+            is JSONArray -> {
+                collectActions(nestedAction, output)
+                return
+            }
         }
         if (value.has("action") || value.has("type")) {
             output.add(value)
