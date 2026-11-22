@@ -1,10 +1,11 @@
 package com.nabhas.ai.api
 
+import com.nabhas.ai.domain.chat.ModelFallbackPolicy
+import com.nabhas.ai.domain.model.ModelCompletionResult
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import okhttp3.OkHttpClient
-import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
@@ -22,20 +23,13 @@ interface OpenAiApiService {
     companion object {
         private const val BASE_URL = "https://coarena.ai/api/v1"
 
-        fun create(
-            baseUrl: String = BASE_URL,
-            apiKey: String = ""
-        ): OpenAiApiService {
+        fun create(baseUrl: String = BASE_URL): OpenAiApiService {
             val normalizedBaseUrl = baseUrl.trim().let { value ->
                 if (value.endsWith("/")) value else "$value/"
             }
 
-            val loggingInterceptor = HttpLoggingInterceptor().apply {
-                level = HttpLoggingInterceptor.Level.BODY
-            }
-
+            // Do not log HTTP headers or bodies: requests contain bearer credentials and private chat text.
             val client = OkHttpClient.Builder()
-                .addInterceptor(loggingInterceptor)
                 .addInterceptor { chain ->
                     val request = chain.request().newBuilder()
                         .addHeader("Content-Type", "application/json")
@@ -64,12 +58,7 @@ suspend fun OpenAiApiService.chatCompletionsWithFallback(
     primaryModel: String = request.model,
     useFallbackChain: Boolean = true
 ): ModelCompletionResult {
-    val normalizedPrimaryModel = primaryModel.trim().ifBlank { "gpt-6-luna" }
-    val modelsToTry = if (useFallbackChain) {
-        (listOf(normalizedPrimaryModel) + ModelFallbackChain.models).distinct()
-    } else {
-        listOf(normalizedPrimaryModel)
-    }
+    val modelsToTry = ModelFallbackPolicy.modelsToTry(primaryModel, useFallbackChain)
     var lastFailure: Exception? = null
 
     for (modelName in modelsToTry) {

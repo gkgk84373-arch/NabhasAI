@@ -14,23 +14,24 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.nabhas.ai.api.ChatMessage
-import com.nabhas.ai.api.ChatRequest
-import com.nabhas.ai.api.OpenAiApiService
-import com.nabhas.ai.api.chatCompletionsWithFallback
+import com.nabhas.ai.data.api.RetrofitChatCompletionGateway
+import com.nabhas.ai.domain.chat.ChatCompletionGateway
+import com.nabhas.ai.domain.model.ApiSettings
+import com.nabhas.ai.domain.model.ChatMessage
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
-data class ApiSettings(
-    val baseUrl: String = "https://coarena.ai/api/v1",
-    val apiKey: String = "",
-    val primaryModel: String = "gpt-6-luna",
-    val useFallbackChain: Boolean = true
-)
+class ChatViewModel internal constructor(
+    application: Application,
+    private val chatCompletionGateway: ChatCompletionGateway
+) : AndroidViewModel(application) {
 
-class ChatViewModel(application: Application) : AndroidViewModel(application) {
+    constructor(application: Application) : this(
+        application,
+        RetrofitChatCompletionGateway()
+    )
 
     private val preferences = application.getSharedPreferences(
         PREFERENCES_NAME,
@@ -101,14 +102,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun sendMessage(userInput: String) {
+    fun sendMessage(userInput: String): Boolean {
         val content = userInput.trim()
-        if (content.isEmpty() || isLoading.value) return
+        if (content.isEmpty() || isLoading.value) return false
 
         val settings = apiSettings.value
         if (settings.apiKey.isBlank()) {
             errorMessage.value = "Add your API key in API settings before sending a message."
-            return
+            return false
         }
 
         val activeSkill = resolveActiveSkill(content)
@@ -131,16 +132,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         chatJob = viewModelScope.launch {
             try {
-                val apiService = OpenAiApiService.create(baseUrl = settings.baseUrl)
-                val result = apiService.chatCompletionsWithFallback(
-                    authorization = "Bearer ${settings.apiKey}",
-                    request = ChatRequest(
-                        model = settings.primaryModel,
-                        messages = requestMessages
-                    ),
-                    primaryModel = settings.primaryModel,
-                    useFallbackChain = settings.useFallbackChain
-                )
+                val result = chatCompletionGateway.complete(settings, requestMessages)
 
                 val assistantMessage = result.message
                 messages.add(
@@ -169,6 +161,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 chatJob = null
             }
         }
+        return true
     }
 
     fun startVoiceInput() {
@@ -385,8 +378,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         private const val KEY_PRIMARY_MODEL = "primary_model"
         private const val KEY_LEGACY_MODEL = "model"
         private const val KEY_USE_FALLBACK_CHAIN = "use_fallback_chain"
-        private const val DEFAULT_BASE_URL = "https://coarena.ai/api/v1"
-        private const val DEFAULT_PRIMARY_MODEL = "gpt-6-luna"
+        private const val DEFAULT_BASE_URL = ApiSettings.DEFAULT_BASE_URL
+        private const val DEFAULT_PRIMARY_MODEL = ApiSettings.DEFAULT_PRIMARY_MODEL
         private const val AUTO_SKILL = "Auto"
 
         private const val AGENT_MODE_INSTRUCTION =
