@@ -1,5 +1,7 @@
 package com.nabhas.ai.api
 
+import java.io.IOException
+import kotlinx.coroutines.CancellationException
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -16,6 +18,45 @@ interface OpenAiApiService {
         @Header("Authorization") authorization: String,
         @Body request: ChatRequest
     ): ChatResponse
+
+    suspend fun chatCompletionsWithFallback(
+        authorization: String,
+        request: ChatRequest,
+        primaryModel: String = request.model
+    ): ModelCompletionResult {
+        val normalizedPrimaryModel = primaryModel.trim().ifBlank { "gpt-6-luna" }
+        val modelsToTry = (listOf(normalizedPrimaryModel) + ModelFallbackChain.models).distinct()
+        var lastFailure: Exception? = null
+
+        for (modelName in modelsToTry) {
+            try {
+                val response = chatCompletions(
+                    authorization = authorization,
+                    request = request.copy(model = modelName)
+                )
+
+                val message = response.choices
+                    ?.firstNotNullOfOrNull { choice ->
+                        choice.message?.takeIf { it.content.isNotBlank() }
+                    }
+
+                if (message != null) {
+                    return ModelCompletionResult(
+                        modelName = modelName,
+                        message = message
+                    )
+                }
+
+                lastFailure = IOException("Model $modelName returned an empty response.")
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                lastFailure = exception
+            }
+        }
+
+        throw lastFailure ?: IOException("All configured models returned empty responses.")
+    }
 
     companion object {
         private const val BASE_URL = "https://coarena.ai/api/v1/"
