@@ -1,0 +1,19 @@
+.gradle/
+**/build/
+local.properties
+*.iml
+.idea/
+
+# Local Python environments and bytecode
+.venv/
+venv/
+myenv/
+**/.venv/
+**/venv/
+**/myenv/
+__pycache__/
+*.py[cod]
+
+# Local APK/build artifacts
+*.apk
+build-artifacts/
