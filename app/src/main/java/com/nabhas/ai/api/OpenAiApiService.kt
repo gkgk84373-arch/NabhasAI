@@ -1,6 +1,7 @@
 package com.nabhas.ai.api
 
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -9,7 +10,6 @@ import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.Header
 import retrofit2.http.POST
-import java.util.concurrent.TimeUnit
 
 interface OpenAiApiService {
 
@@ -22,10 +22,15 @@ interface OpenAiApiService {
     suspend fun chatCompletionsWithFallback(
         authorization: String,
         request: ChatRequest,
-        primaryModel: String = request.model
+        primaryModel: String = request.model,
+        useFallbackChain: Boolean = true
     ): ModelCompletionResult {
         val normalizedPrimaryModel = primaryModel.trim().ifBlank { "gpt-6-luna" }
-        val modelsToTry = (listOf(normalizedPrimaryModel) + ModelFallbackChain.models).distinct()
+        val modelsToTry = if (useFallbackChain) {
+            (listOf(normalizedPrimaryModel) + ModelFallbackChain.models).distinct()
+        } else {
+            listOf(normalizedPrimaryModel)
+        }
         var lastFailure: Exception? = null
 
         for (modelName in modelsToTry) {
@@ -59,9 +64,16 @@ interface OpenAiApiService {
     }
 
     companion object {
-        private const val BASE_URL = "https://coarena.ai/api/v1/"
+        private const val BASE_URL = "https://coarena.ai/api/v1"
 
-        fun create(apiKey: String = ""): OpenAiApiService {
+        fun create(
+            baseUrl: String = BASE_URL,
+            apiKey: String = ""
+        ): OpenAiApiService {
+            val normalizedBaseUrl = baseUrl.trim().let { value ->
+                if (value.endsWith("/")) value else "$value/"
+            }
+
             val loggingInterceptor = HttpLoggingInterceptor().apply {
                 level = HttpLoggingInterceptor.Level.BODY
             }
@@ -80,7 +92,7 @@ interface OpenAiApiService {
                 .build()
 
             return Retrofit.Builder()
-                .baseUrl(BASE_URL)
+                .baseUrl(normalizedBaseUrl)
                 .client(client)
                 .addConverterFactory(GsonConverterFactory.create())
                 .build()

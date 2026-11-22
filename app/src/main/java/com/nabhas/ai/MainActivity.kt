@@ -419,11 +419,17 @@ private fun SettingsSheet(
     onSaved: () -> Unit
 ) {
     val currentSettings = viewModel.apiSettings.value
+    var baseUrl by remember(currentSettings.baseUrl) {
+        mutableStateOf(currentSettings.baseUrl)
+    }
     var apiKey by remember(currentSettings.apiKey) {
         mutableStateOf(currentSettings.apiKey)
     }
-    var model by remember(currentSettings.model) {
-        mutableStateOf(currentSettings.model)
+    var primaryModel by remember(currentSettings.primaryModel) {
+        mutableStateOf(currentSettings.primaryModel)
+    }
+    var useFallbackChain by remember(currentSettings.useFallbackChain) {
+        mutableStateOf(currentSettings.useFallbackChain)
     }
 
     Column(
@@ -440,6 +446,15 @@ private fun SettingsSheet(
         )
 
         OutlinedTextField(
+            value = baseUrl,
+            onValueChange = { baseUrl = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Base URL") },
+            placeholder = { Text("https://coarena.ai/api/v1") },
+            singleLine = true
+        )
+
+        OutlinedTextField(
             value = apiKey,
             onValueChange = { apiKey = it },
             modifier = Modifier.fillMaxWidth(),
@@ -450,13 +465,32 @@ private fun SettingsSheet(
         )
 
         OutlinedTextField(
-            value = model,
-            onValueChange = { model = it },
+            value = primaryModel,
+            onValueChange = { primaryModel = it },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Model") },
-            placeholder = { Text("default") },
+            label = { Text("Primary model") },
+            placeholder = { Text("gpt-6-luna") },
             singleLine = true
         )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Fallback chain", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "Try other models if the primary model fails",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = useFallbackChain,
+                onCheckedChange = { useFallbackChain = it }
+            )
+        }
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -480,7 +514,12 @@ private fun SettingsSheet(
         Button(
             onClick = {
                 viewModel.saveApiSettings(
-                    ApiSettings(apiKey = apiKey, model = model)
+                    ApiSettings(
+                        baseUrl = baseUrl,
+                        apiKey = apiKey,
+                        primaryModel = primaryModel,
+                        useFallbackChain = useFallbackChain
+                    )
                 )
                 onSaved()
             },

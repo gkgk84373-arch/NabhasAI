@@ -25,13 +25,14 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 data class ApiSettings(
+    val baseUrl: String = "https://coarena.ai/api/v1",
     val apiKey: String = "",
-    val model: String = "default"
+    val primaryModel: String = "gpt-6-luna",
+    val useFallbackChain: Boolean = true
 )
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val apiService = OpenAiApiService.create()
     private val preferences = application.getSharedPreferences(
         PREFERENCES_NAME,
         Application.MODE_PRIVATE
@@ -70,13 +71,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveApiSettings(settings: ApiSettings) {
         val sanitizedSettings = settings.copy(
+            baseUrl = settings.baseUrl.trim().ifBlank { DEFAULT_BASE_URL },
             apiKey = settings.apiKey.trim(),
-            model = settings.model.trim().ifBlank { "default" }
+            primaryModel = settings.primaryModel.trim().ifBlank { DEFAULT_PRIMARY_MODEL }
         )
 
         preferences.edit()
+            .putString(KEY_BASE_URL, sanitizedSettings.baseUrl)
             .putString(KEY_API_KEY, sanitizedSettings.apiKey)
-            .putString(KEY_MODEL, sanitizedSettings.model)
+            .putString(KEY_PRIMARY_MODEL, sanitizedSettings.primaryModel)
+            .putBoolean(KEY_USE_FALLBACK_CHAIN, sanitizedSettings.useFallbackChain)
             .apply()
 
         apiSettings.value = sanitizedSettings
@@ -121,24 +125,24 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         chatJob = viewModelScope.launch {
             try {
-                val response = apiService.chatCompletions(
+                val apiService = OpenAiApiService.create(baseUrl = settings.baseUrl)
+                val result = apiService.chatCompletionsWithFallback(
                     authorization = "Bearer ${settings.apiKey}",
                     request = ChatRequest(
-                        model = settings.model,
+                        model = settings.primaryModel,
                         messages = requestMessages
-                    )
+                    ),
+                    primaryModel = settings.primaryModel,
+                    useFallbackChain = settings.useFallbackChain
                 )
 
-                val assistantMessage = response.choices
-                    ?.firstOrNull()
-                    ?.message
-
-                if (assistantMessage != null) {
-                    messages.add(assistantMessage)
-                    speak(assistantMessage.content)
-                } else {
-                    errorMessage.value = "No response received from the model."
-                }
+                val assistantMessage = result.message
+                messages.add(
+                    assistantMessage.copy(
+                        content = "[Model: ${result.modelName}]\n${assistantMessage.content}"
+                    )
+                )
+                speak(assistantMessage.content)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -201,11 +205,20 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun loadApiSettings(): ApiSettings {
-        return ApiSettings(
-            apiKey = preferences.getString(KEY_API_KEY, "").orEmpty(),
-            model = preferences.getString(KEY_MODEL, "default")
+        val storedModel = preferences.getString(KEY_PRIMARY_MODEL, null)
+            ?: preferences.getString(KEY_LEGACY_MODEL, DEFAULT_PRIMARY_MODEL)
                 .orEmpty()
-                .ifBlank { "default" }
+
+        return ApiSettings(
+            baseUrl = preferences.getString(KEY_BASE_URL, DEFAULT_BASE_URL)
+                .orEmpty()
+                .ifBlank { DEFAULT_BASE_URL },
+            apiKey = preferences.getString(KEY_API_KEY, "").orEmpty(),
+            primaryModel = storedModel
+                .takeUnless { it == "default" }
+                ?.ifBlank { DEFAULT_PRIMARY_MODEL }
+                ?: DEFAULT_PRIMARY_MODEL,
+            useFallbackChain = preferences.getBoolean(KEY_USE_FALLBACK_CHAIN, true)
         )
     }
 
@@ -344,8 +357,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
         private const val PREFERENCES_NAME = "nabhas_ai_settings"
+        private const val KEY_BASE_URL = "base_url"
         private const val KEY_API_KEY = "api_key"
-        private const val KEY_MODEL = "model"
+        private const val KEY_PRIMARY_MODEL = "primary_model"
+        private const val KEY_LEGACY_MODEL = "model"
+        private const val KEY_USE_FALLBACK_CHAIN = "use_fallback_chain"
+        private const val DEFAULT_BASE_URL = "https://coarena.ai/api/v1"
+        private const val DEFAULT_PRIMARY_MODEL = "gpt-6-luna"
         private const val LISTENING_RESTART_DELAY_MS = 500L
 
         private const val AGENT_MODE_INSTRUCTION =
